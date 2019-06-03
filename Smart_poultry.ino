@@ -1,0 +1,128 @@
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+int buzzer = D0;
+int smokeA0 = A0;
+// Your threshold value
+int sensorThres = 300;
+
+
+ 
+//-------- Customise these values -----------
+const char* ssid = "YOU";
+const char* password = "sbvizag2019";
+//String command;
+#include "DHT.h"
+#define DHTPIN D2    // what pin we're connected to
+#define DHTTYPE DHT11   // define type of sensor DHT 11
+DHT dht (DHTPIN, DHTTYPE);
+ 
+#define ORG "gsapfg"
+#define DEVICE_TYPE "smart_plant_monitor"
+#define DEVICE_ID "smart_plant"
+#define TOKEN "17B21A0404"
+//-------- Customise the above values --------
+ 
+char server[] = ORG ".messaging.internetofthings.ibmcloud.com";
+char topic[] = "iot-2/evt/Data/fmt/json";
+char authMethod[] = "use-token-auth";
+char token[] = TOKEN;
+char clientId[] = "d:" ORG ":" DEVICE_TYPE ":" DEVICE_ID;
+ 
+WiFiClient wifiClient;
+PubSubClient client(server, 1883,wifiClient);
+
+void setup() {
+ pinMode(buzzer, OUTPUT);
+ pinMode(smokeA0, INPUT);
+ Serial.begin(9600);
+ Serial.println();
+ dht.begin();
+ Serial.print("Connecting to ");
+ Serial.print(ssid);
+ WiFi.begin(ssid, password);
+ while (WiFi.status() != WL_CONNECTED) {
+ delay(500);
+ Serial.print(".");
+ } 
+ Serial.println("");
+ 
+ Serial.print("WiFi connected, IP address: ");
+ Serial.println(WiFi.localIP());
+}
+ 
+void loop() {
+float h = dht.readHumidity();
+float t = dht.readTemperature();
+float g = analogRead(smokeA0);
+if (isnan(h) || isnan(t))
+{
+Serial.println("Failed to read from DHT sensor!");
+delay(1000);
+return;
+}
+// Checks if it has reached the threshold value
+ if (g > sensorThres)
+  {
+    tone(buzzer,1000,500);
+  }
+  else
+  {
+    noTone(buzzer);
+  }
+  delay(100);
+
+
+PublishData(t,h,g);
+ if (!client.loop()) {
+    mqttConnect();
+  }
+   delay(100);
+}
+void mqttConnect() {
+  if (!client.connected()) {
+    Serial.print("Reconnecting MQTT client to "); Serial.println(server);
+    while (!client.connect(clientId, authMethod, token)) {
+      Serial.print(".");
+      delay(500);
+    }
+    initManagedDevice();
+    Serial.println();
+  }
+}
+void initManagedDevice() {
+  if (client.subscribe(topic)) {
+    Serial.println("subscribe to cmd OK");
+  } else {
+    Serial.println("subscribe to cmd FAILED");
+  }
+}
+
+void PublishData(float temp, float humid, float gas){
+ if (!client.connected()) {
+ Serial.print("Reconnecting client to ");
+ Serial.println(server);
+ while (!client.connect(clientId, authMethod, token)) {
+ Serial.print(".");
+ delay(500);
+ }
+ Serial.println();
+ }
+  String payload = "{\"d\":{\"temperature\":";
+  payload += temp;
+  payload+="," "\"humidity\":";
+  payload += humid;
+  payload+="," "\"gas\":";
+  payload += gas;
+  payload += "}}";
+ Serial.print("Sending payload: ");
+ Serial.println(payload);
+  
+ if (client.publish(topic, (char*) payload.c_str())) {
+ Serial.println("Publish ok");
+ delay(1000);
+ } else {
+ Serial.println("Publish failed");
+ delay(2000);
+ }
+}
